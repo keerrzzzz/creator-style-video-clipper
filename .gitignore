@@ -1,0 +1,15 @@
+.env
+.env.save
+__pycache__/
+*.pyc
+.venv/
+venv/
+output/
+rough-cuts/
+*.part
+*.mp4
+models/*.bin
+skills/video/profiles/*.json
+!skills/video/profiles/example-creator-profile.json
+skills/video/private/
+.DS_Store

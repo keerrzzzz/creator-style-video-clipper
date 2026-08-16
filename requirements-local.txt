@@ -1,0 +1,4 @@
+# 与 requirements.txt 相同，保留这个文件名以兼容原有安装命令。
+-r requirements.txt
+# torch is only needed if you want CUDA Whisper. CPU works without it.
+# torch>=2.0
