@@ -166,6 +166,66 @@ def find_song_candidates(segments: list[Segment], profile: dict[str, object]) ->
     return candidates
 
 
+def find_event_reaction_candidates(segments: list[Segment], profile: dict[str, object]) -> list[dict[str, Any]]:
+    """Find a configured live event together with the creator's immediate reaction.
+
+    This is profile-driven on purpose: a football profile can define goal events,
+    while a food or gaming creator simply omits ``event_reactions`` and gets no
+    special handling.  It uses transcript evidence only, so its boundary still
+    needs visual review when the event itself is not spoken aloud.
+    """
+    config = profile.get("event_reactions", {})
+    if not isinstance(config, dict) or not config.get("enabled", False):
+        return []
+    event_terms = [str(value).strip() for value in config.get("event_keywords", []) if str(value).strip()]
+    reaction_terms = [str(value).strip() for value in config.get("reaction_keywords", []) if str(value).strip()]
+    if not event_terms or not reaction_terms:
+        return []
+    event_pattern = re.compile("|".join(re.escape(value) for value in event_terms))
+    reaction_pattern = re.compile("|".join(re.escape(value) for value in reaction_terms))
+    pre_roll = max(0.0, float(config.get("pre_roll_seconds", 12)))
+    reaction_window = max(1.0, float(config.get("reaction_window_seconds", 45)))
+    post_roll = max(0.0, float(config.get("post_roll_seconds", 8)))
+    score = max(1, int(config.get("score", 9)))
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+
+    for index, event in enumerate(segments):
+        if not event_pattern.search(event.text):
+            continue
+        reaction = next(
+            (
+                item
+                for item in segments[index:]
+                if item.start <= event.end + reaction_window and reaction_pattern.search(item.text)
+            ),
+            None,
+        )
+        if reaction is None:
+            continue
+        start = max(0.0, event.start - pre_roll)
+        end = min(segments[-1].end, reaction.end + post_roll)
+        if end - start < 15:
+            continue
+        key = (round(start), round(end))
+        if key in seen:
+            continue
+        seen.add(key)
+        context = " ".join(item.text for item in segments if start <= item.start and item.end <= end)
+        candidates.append(
+            {
+                "start_seconds": start,
+                "end_seconds": end,
+                "score": score,
+                "hook": event.text[:42].strip() or "关键事件反应片段",
+                "reason": "关键事件及即时反应（建议结合画面复核）",
+                "context": context[:500],
+                "kind": "event_reaction",
+            }
+        )
+    return candidates
+
+
 def topic_bounds(segments: list[Segment], anchor_index: int, max_seconds: int, pause_seconds: float = 4.0) -> tuple[float, float] | None:
     """Return a complete speech block around an anchor, never a padded time window.
 

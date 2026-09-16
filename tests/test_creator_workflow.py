@@ -9,7 +9,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SCRIPTS))
 from creator_workflow import _apply_learned_boundaries, _apply_learned_preferences, _apply_semantic_similarity, _empty_learned_preferences, _update_learned_preferences, run_workflow
-from transcript_rough_cut import Segment, compile_signals, make_candidates, score_text, topic_bounds
+from transcript_rough_cut import Segment, compile_signals, find_event_reaction_candidates, make_candidates, score_text, topic_bounds
 from local.downloader import _resolve_local_path
 
 
@@ -129,6 +129,33 @@ class CreatorWorkflowTests(unittest.TestCase):
             patterns, _ = compile_signals(profile_path)
             self.assertIsNone(patterns["adaptation"].search("陛下你也不想想"))
             self.assertEqual(score_text("红烧肉是我的做法", patterns)[0], 5)
+
+    def test_profile_can_keep_a_football_event_with_its_immediate_reaction(self):
+        profile = {
+            "event_reactions": {
+                "enabled": True,
+                "event_keywords": ["进球"],
+                "reaction_keywords": ["球进啦", "漂亮"],
+                "pre_roll_seconds": 8,
+                "reaction_window_seconds": 20,
+                "post_roll_seconds": 6,
+            }
+        }
+        segments = [
+            Segment(90, 96, "前场正在组织进攻"),
+            Segment(100, 102, "进球了"),
+            Segment(103, 108, "球进啦，太漂亮了"),
+            Segment(120, 125, "开始讨论下一个话题"),
+        ]
+        candidates = find_event_reaction_candidates(segments, profile)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["start_seconds"], 92)
+        self.assertEqual(candidates[0]["end_seconds"], 114)
+        self.assertIn("关键事件及即时反应", candidates[0]["reason"])
+
+    def test_event_reaction_rule_stays_off_without_profile_configuration(self):
+        segments = [Segment(100, 102, "进球了"), Segment(103, 108, "球进啦")]
+        self.assertEqual(find_event_reaction_candidates(segments, {}), [])
 
     def test_feedback_keywords_boost_matching_candidates(self):
         with tempfile.TemporaryDirectory() as temp_dir:

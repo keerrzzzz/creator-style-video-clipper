@@ -16,6 +16,7 @@ from transcript_rough_cut import (
     analyze_hourly,
     choose_candidates,
     compile_signals,
+    find_event_reaction_candidates,
     find_song_candidates,
     get_transcript,
 )
@@ -315,6 +316,7 @@ def run_workflow(
     # of being cut in the middle.
     hourly, candidates = analyze_hourly(segments, window_seconds, candidates_per_window, 15, 180, patterns)
     candidates.extend(find_song_candidates(segments, profile))
+    candidates.extend(find_event_reaction_candidates(segments, profile))
     candidates = _apply_feedback(candidates, feedback)
     candidates = _apply_learned_preferences(candidates, learned)
     candidates = _apply_learned_boundaries(candidates, learned)
