@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transcript-first rough cutting for football livestreams.
+"""Transcript-first rough cutting for long-form videos and livestreams.
 
 The script deliberately produces original-frame, original-audio rough cuts only.
 It ranks candidate windows from a timestamped transcript using the target creator's
@@ -18,17 +18,16 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-DEFAULT_SIGNALS = {
-    # A creator profile supplies domain-specific nouns.  The baseline merely
-    # verifies that the speech contains meaningful text, so a new niche is not
-    # discarded just because its vocabulary was absent from this repository.
+GENERIC_SIGNALS = {
+    # These describe broadly useful clip structure rather than any one
+    # creator.  Creator-specific phrases must live only in a profile.
     "topic": [r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}"],
     "stance": ["我觉得", "我说", "其实", "就是", "根本", "肯定", "不可能", "会不会", "应该", "别急", "懂不懂", "就这"],
     "payoff": ["结果", "没想到", "居然", "反而", "笑死", "哈哈", "爽", "可惜", "差一点", "打脸", "翻车"],
-    "adaptation": ["谎言", "尊重", "上帝", "陛下", "大人", "没有人比", "没人比", "你以为", "你也不想想", "这就是"],
+    "adaptation": [],
 }
 
 
@@ -71,22 +70,34 @@ def format_time(value: float) -> str:
 
 
 def compile_signals(profile_path: Path | None) -> tuple[dict[str, re.Pattern[str]], dict[str, object]]:
-    profile: dict[str, object] = {"creator": "默认足球直播风格", "signals": DEFAULT_SIGNALS}
+    """Compile either generic fallback rules or one creator's saved signals.
+
+    Profiles add creator-specific signals to generic topic, opinion, and
+    payoff structure.  The generic fallback deliberately has no catchphrases,
+    so one creator's phrases cannot leak into another creator's ranking.
+    """
     if profile_path:
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    raw_signals = profile.get("signals", {})
-    if not isinstance(raw_signals, dict):
+        profile_signals = profile.get("signals", {})
+    else:
+        profile = {"creator": "通用长视频筛选", "signals": GENERIC_SIGNALS}
+        profile_signals = {}
+    if not isinstance(profile_signals, dict):
         raise ValueError("creator profile signals must be an object")
     patterns: dict[str, re.Pattern[str]] = {}
     for name in ("topic", "stance", "payoff", "adaptation"):
-        extra_terms = raw_signals.get(name) or []
-        if not isinstance(extra_terms, list):
-            extra_terms = []
-        # Built-in topic signals intentionally contain a compact regex. Profile
-        # phrases are escaped, then *added* rather than replacing the baseline.
-        baseline = "|".join(str(term) for term in DEFAULT_SIGNALS[name])
-        additions = "|".join(re.escape(str(term)) for term in extra_terms if str(term))
-        patterns[name] = re.compile("|".join(part for part in (baseline, additions) if part))
+        terms = profile_signals.get(name) or []
+        if not isinstance(terms, list):
+            terms = []
+        # Generic structure is retained for topic, opinion, and payoff; its
+        # adaptation list is intentionally empty. Profile text is literal user
+        # data, never an executable regular expression.
+        baseline = GENERIC_SIGNALS[name] if name != "adaptation" else []
+        expression = "|".join(
+            [str(term) for term in baseline if str(term)]
+            + [re.escape(str(term)) for term in terms if str(term)]
+        )
+        patterns[name] = re.compile(expression) if expression else re.compile(r"(?!)")
     return patterns, profile
 
 
@@ -98,7 +109,7 @@ def score_text(text: str, patterns: dict[str, re.Pattern[str]]) -> tuple[int, li
         labels.append("主题/人物")
     if patterns["stance"].search(text):
         score += 2
-        labels.append("主播观点")
+        labels.append("创作者观点")
     if patterns["payoff"].search(text):
         score += 2
         labels.append("反转或反应")
@@ -146,8 +157,8 @@ def find_song_candidates(segments: list[Segment], profile: dict[str, object]) ->
                 "start_seconds": start,
                 "end_seconds": end,
                 "score": 100,
-                "hook": segment.text[:42].strip() or "主播唱歌",
-                "reason": "主播特长：完整歌曲",
+                "hook": segment.text[:42].strip() or "创作者演唱",
+                "reason": "创作者特长：完整歌曲",
                 "context": " ".join(item.text for item in segments if start <= item.start and item.end <= end)[:500],
                 "kind": "song",
             }
@@ -200,7 +211,7 @@ def make_candidates(
         start, end = bounds
         if end - start < min_seconds:
             continue
-        hook = anchor.text[:42].strip() or "直播反应片段"
+        hook = anchor.text[:42].strip() or "视频反应片段"
         candidates.append(
             {
                 "start_seconds": start,
@@ -220,7 +231,7 @@ def choose_candidates(candidates: list[dict[str, Any]], max_clips: int) -> list[
     songs = [item for item in candidates if item.get("kind") == "song"]
     regular = [item for item in candidates if item.get("kind") != "song"]
     # Every detected song is a creator-specific must-export.  --max-clips only
-    # limits the ordinary football/commentary selections.
+    # limits ordinary commentary selections.
     for candidate in sorted(songs, key=lambda item: item["start_seconds"]):
         overlaps = any(
             max(candidate["start_seconds"], kept["start_seconds"])
@@ -309,9 +320,9 @@ def get_transcript(input_path: Path, transcript_srt: Path | None, language: str)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create hourly transcript-ranked football livestream rough cuts.")
+    parser = argparse.ArgumentParser(description="Create hourly transcript-ranked rough cuts from long-form videos.")
     source_group = parser.add_mutually_exclusive_group(required=True)
-    source_group.add_argument("--input", type=Path, help="Local MP4/MKV livestream recording")
+    source_group.add_argument("--input", type=Path, help="Local MP4/MKV recording")
     source_group.add_argument("--input-url", help="Public video URL to download before transcription")
     parser.add_argument("--output", required=True, type=Path, help="Output directory")
     parser.add_argument("--transcript-srt", type=Path, help="Reuse an existing timestamped SRT")

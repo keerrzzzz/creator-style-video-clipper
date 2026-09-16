@@ -11,7 +11,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 def _run_creator_workflow() -> int:
     """Expose the video skill's all-in-one creator-profile workflow from this CLI."""
-    script_dir = Path(__file__).resolve().parent / "skills" / "video" / "scripts"
+    script_dir = Path(__file__).resolve().parent / "src"
     sys.path.insert(0, str(script_dir))
     from creator_workflow import main as workflow_main
     return workflow_main()

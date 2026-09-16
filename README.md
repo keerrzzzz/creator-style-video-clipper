@@ -181,6 +181,16 @@ python main.py video-workflow "https://example.com/next-target-video" \
 
 This skips historical-video analysis. Candidates matching a preferred keyword are boosted and identify that preference in their reason; candidates matching a suppressed keyword are filtered out.
 
+Each run automatically maintains one creator-specific learning file in `creator-learning/` and writes a `learned-preferences.json` copy to the run output. `keep` accumulates positive terms, `reject` accumulates negative terms, and `adjust` learns the average start/end offset (capped at 15 seconds per clip). After at least three reviewed keep/reject examples, a local Embedding model also compares candidate meaning with kept and rejected clips. The model downloads once, then runs from the local cache. The file is plain JSON, so its terms or the entire creator file can be removed to undo learning.
+
+```bash
+python main.py "NEXT_TARGET_VIDEO_URL" \
+  --creator "Example Creator" \
+  --creator-profile output/example-creator-episode-01/creator-profile.json \
+  --clip-feedback output/example-creator-episode-01/clip-feedback.json \
+  --output output/example-creator-episode-02
+```
+
 ### 6. Export approved rough cuts
 
 After reviewing the plan for a run, rerun that command with `--export --reencode`. The exported MP4 files are written to `OUTPUT_DIRECTORY/exports/`.
@@ -236,7 +246,7 @@ python main.py video-workflow "TARGET_VIDEO_URL_OR_LOCAL_FILE" \
   --output output/next-run
 ```
 
-The repository includes a neutral starting example at `skills/video/profiles/example-creator-profile.json`.
+The repository includes a neutral starting example at `profiles/example-creator-profile.json`.
 
 ### What the profile generator does—and does not do
 
@@ -351,24 +361,23 @@ python main.py video-workflow "/absolute/path/to/recording.mp4" \
 ## Project structure
 
 ```text
-main.py
-skills/video/
-├── SKILL.md                         # Reusable creator-clipping instructions
-├── profiles/
-│   └── example-creator-profile.json # Public neutral profile example
-└── scripts/
-    ├── creator_workflow.py          # End-to-end workflow
-    ├── analyze_creator_profile.py   # Profile generation
-    ├── transcript_rough_cut.py      # Topic boundaries and ranking
-    ├── rough_cut.py                 # MP4 rough-cut export
-    └── local/                       # Local downloading and transcription
+main.py                               # Command-line entry point
+src/
+├── creator_workflow.py              # End-to-end workflow
+├── analyze_creator_profile.py        # Profile generation
+├── transcript_rough_cut.py           # Topic boundaries and ranking
+├── rough_cut.py                      # MP4 rough-cut export
+└── local/                            # Local downloading and transcription
+profiles/
+└── example-creator-profile.json      # Public neutral profile example
+docs/                                 # Technical reference material
 tests/
 └── test_creator_workflow.py         # Offline public workflow tests
 ```
 
 ## Privacy and repository scope
 
-This repository contains the general-purpose workflow. Generated outputs, downloaded media, cached models, and creator-specific profiles are excluded from Git. Private creator extensions can remain local without changing the public workflow.
+This repository contains a general-purpose workflow. Generated outputs, downloaded media, cached models, and creator-specific profiles are excluded from Git. Keep private creator extensions outside the repository or in the ignored `private/` directory.
 
 Only process media you own or have permission to download, transcribe, edit, and distribute. The tool does not remove copyright, platform, privacy, or licensing obligations.
 

@@ -4,14 +4,14 @@
     {
       "id": "sourceVideo",
       "type": "promptString",
-      "description": "本地直播视频路径（相对当前项目或绝对路径）",
-      "default": "rough-cuts/source/直播录像.mp4"
+      "description": "本地视频路径（相对当前项目或绝对路径）",
+      "default": "rough-cuts/source/录像.mp4"
     },
     {
       "id": "sourceSrt",
       "type": "promptString",
       "description": "已有时间戳 SRT 路径（相对当前项目或绝对路径）",
-      "default": "output/直播录像.srt"
+      "default": "output/录像.srt"
     },
     {
       "id": "roughCutOutput",
@@ -22,8 +22,8 @@
     {
       "id": "creatorProfile",
       "type": "promptString",
-      "description": "博主风格档案 JSON 路径",
-      "default": "skills/video/profiles/football-100-telan.json"
+      "description": "创作者风格画像 JSON 路径",
+      "default": "profiles/example-creator-profile.json"
     },
     {
       "id": "sourceUrl",
@@ -34,11 +34,11 @@
   ],
   "tasks": [
     {
-      "label": "足球直播：按已有文字稿粗剪",
+      "label": "长视频：按已有文字稿粗剪",
       "type": "process",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/skills/video/scripts/transcript_rough_cut.py",
+        "${workspaceFolder}/src/transcript_rough_cut.py",
         "--input",
         "${input:sourceVideo}",
         "--transcript-srt",
@@ -57,11 +57,11 @@
       "problemMatcher": []
     },
     {
-      "label": "足球直播：转写后粗剪",
+      "label": "长视频：转写后粗剪",
       "type": "process",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/skills/video/scripts/transcript_rough_cut.py",
+        "${workspaceFolder}/src/transcript_rough_cut.py",
         "--input",
         "${input:sourceVideo}",
         "--creator-profile",
@@ -78,11 +78,11 @@
       "problemMatcher": []
     },
     {
-      "label": "足球直播：下载720p，逐小时转写后粗剪",
+      "label": "长视频：下载 720p，逐小时转写后粗剪",
       "type": "process",
       "command": "${workspaceFolder}/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/skills/video/scripts/transcript_rough_cut.py",
+        "${workspaceFolder}/src/transcript_rough_cut.py",
         "--input-url",
         "${input:sourceUrl}",
         "--output",

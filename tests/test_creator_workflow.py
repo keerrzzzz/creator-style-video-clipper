@@ -6,10 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "video" / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SCRIPTS))
-from creator_workflow import run_workflow
-from transcript_rough_cut import Segment, compile_signals, make_candidates, topic_bounds
+from creator_workflow import _apply_learned_boundaries, _apply_learned_preferences, _apply_semantic_similarity, _empty_learned_preferences, _update_learned_preferences, run_workflow
+from transcript_rough_cut import Segment, compile_signals, make_candidates, score_text, topic_bounds
 from local.downloader import _resolve_local_path
 
 
@@ -105,8 +105,30 @@ class CreatorWorkflowTests(unittest.TestCase):
                 )
             self.assertEqual(len(result["clips"]), 1)
             self.assertEqual(result["clips"][0]["start"], "00:00:10")
-            self.assertIn("主播观点", result["clips"][0]["reason"])
+            self.assertIn("创作者观点", result["clips"][0]["reason"])
             self.assertIn("反转或反应", result["clips"][0]["reason"])
+
+    def test_profile_does_not_inherit_another_creators_catchphrases(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_path = Path(temp_dir) / "creator-profile.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "creator": "美食创作者",
+                        "signals": {
+                            "topic": ["红烧肉"],
+                            "stance": ["我的做法"],
+                            "payoff": [],
+                            "adaptation": [],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            patterns, _ = compile_signals(profile_path)
+            self.assertIsNone(patterns["adaptation"].search("陛下你也不想想"))
+            self.assertEqual(score_text("红烧肉是我的做法", patterns)[0], 5)
 
     def test_feedback_keywords_boost_matching_candidates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,6 +140,55 @@ class CreatorWorkflowTests(unittest.TestCase):
             with patch("local.downloader.download_video", return_value=str(root / "target.mp4")):
                 result = run_workflow("https://example.com/video", "测试博主", root / "result", history_srt=[history], target_srt=target, clip_feedback=feedback_path)
             self.assertIn("人工反馈偏好（反转）", result["clips"][0]["reason"])
+
+    def test_keep_and_reject_feedback_builds_reusable_learned_preferences(self):
+        learned = _empty_learned_preferences("测试创作者")
+        feedback = {
+            "feedback": [
+                {"decision": "keep", "keywords": ["深度拆解"], "context": "这次深度拆解很完整"},
+                {"decision": "reject", "keywords": ["日常播报"], "context": "普通的日常播报"},
+            ]
+        }
+        learned = _update_learned_preferences(learned, feedback)
+        self.assertGreater(learned["positive_terms"]["深度拆解"], 0)
+        self.assertGreater(learned["negative_terms"]["日常播报"], 0)
+        candidates = _apply_learned_preferences(
+            [
+                {"score": 5, "reason": "完整话题段", "context": "这是一次深度拆解"},
+                {"score": 5, "reason": "完整话题段", "context": "这是日常播报"},
+            ],
+            learned,
+        )
+        self.assertGreater(candidates[0]["score"], 5)
+        self.assertLess(candidates[1]["score"], 5)
+        self.assertIn("已学习保留偏好", candidates[0]["reason"])
+        self.assertIn("已学习拒绝偏好", candidates[1]["reason"])
+
+    def test_adjust_feedback_learns_boundary_offset(self):
+        learned = _update_learned_preferences(
+            _empty_learned_preferences("测试创作者"),
+            {"feedback": [{"decision": "adjust", "original_start": "00:01:00", "original_end": "00:02:00", "suggested_start": "00:00:55", "suggested_end": "00:02:08"}]},
+        )
+        candidate = _apply_learned_boundaries([{"start_seconds": 100, "end_seconds": 160, "reason": "完整话题段"}], learned)[0]
+        self.assertEqual((candidate["start_seconds"], candidate["end_seconds"]), (95, 168))
+        self.assertIn("已学习边界偏移", candidate["reason"])
+
+    def test_semantic_similarity_uses_reviewed_examples(self):
+        learned = _empty_learned_preferences("测试创作者")
+        learned["semantic_samples"] = [
+            {"label": "keep", "embedding": [1.0, 0.0]},
+            {"label": "keep", "embedding": [0.9, 0.1]},
+            {"label": "reject", "embedding": [0.0, 1.0]},
+        ]
+        vectors = {"像保留": [1.0, 0.0], "像拒绝": [0.0, 1.0]}
+        candidates = _apply_semantic_similarity(
+            [{"score": 5, "reason": "完整话题段", "context": "像保留"}, {"score": 5, "reason": "完整话题段", "context": "像拒绝"}],
+            learned,
+            lambda text: vectors[text],
+        )
+        self.assertGreater(candidates[0]["score"], 5)
+        self.assertLess(candidates[1]["score"], 5)
+        self.assertIn("语义接近已保留片段", candidates[0]["reason"])
 
     def test_local_downloader_accepts_local_files_and_defers_remote_urls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
