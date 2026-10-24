@@ -102,6 +102,32 @@ def _time_to_seconds(value: object) -> float | None:
         return None
 
 
+def _exclude_feedback_overlaps(candidates: list[dict], feedbacks: list[dict]) -> list[dict]:
+    """Remove candidates overlapping any earlier review batch."""
+    reviewed_ranges: list[tuple[float, float]] = []
+    for feedback in feedbacks:
+        entries = feedback.get("feedback", []) if isinstance(feedback, dict) else []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            start = _time_to_seconds(entry.get("original_start"))
+            end = _time_to_seconds(entry.get("original_end"))
+            if start is not None and end is not None and end > start:
+                reviewed_ranges.append((start, end))
+    if not reviewed_ranges:
+        return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if not any(
+            max(float(candidate["start_seconds"]), start) < min(float(candidate["end_seconds"]), end)
+            for start, end in reviewed_ranges
+        )
+    ]
+
+
 def _creator_learning_path(store: Path, creator: str) -> Path:
     safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", creator).strip("_") or "creator"
     identity = hashlib.sha256(creator.encode("utf-8")).hexdigest()[:10]
@@ -263,6 +289,7 @@ def run_workflow(
     download_height: str = "720",
     export: bool = False,
     reencode: bool = False,
+    exclude_feedback: list[Path] | None = None,
 ) -> dict:
     """Run the reproducible workflow; transcript paths make it testable offline."""
     if str(SCRIPTS_DIR) not in sys.path:
@@ -321,6 +348,10 @@ def run_workflow(
     candidates = _apply_learned_preferences(candidates, learned)
     candidates = _apply_learned_boundaries(candidates, learned)
     candidates = _apply_semantic_similarity(candidates, learned, embed)
+    # Learned boundary offsets can move a clip after it was initially found,
+    # so exclude reviewed ranges only after every time adjustment is complete.
+    if exclude_feedback:
+        candidates = _exclude_feedback_overlaps(candidates, [_load_feedback(path) for path in exclude_feedback])
     hourly_path = output / "hourly-analysis.json"
     hourly_path.write_text(json.dumps({"window_seconds": window_seconds, "windows": hourly}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     clips = choose_candidates(candidates, max_clips)
@@ -355,6 +386,7 @@ def main() -> int:
     parser.add_argument("--history-transcript-srt", type=Path, action="append", default=[], help="历史爆款 SRT；适合离线复跑")
     parser.add_argument("--creator-profile", type=Path, help="复用已保存的创作者画像 JSON，跳过历史视频分析")
     parser.add_argument("--clip-feedback", type=Path, help="读取既有 clip-feedback.json；首次运行会在输出目录创建模板")
+    parser.add_argument("--exclude-feedback", type=Path, action="append", default=[], help="跳过与该反馈批次重叠的候选；可重复传入")
     parser.add_argument("--learned-preferences", type=Path, help="读取同一创作者既有的 learned-preferences.json")
     parser.add_argument("--learning-store", type=Path, default=Path("creator-learning"), help="跨任务自动保存每位创作者学习档案的目录")
     parser.add_argument("--target-transcript-srt", type=Path, help="复用目标 SRT，跳过目标转录")
@@ -369,7 +401,7 @@ def main() -> int:
     parser.add_argument("--reencode", action="store_true", help="粗剪采用更准确但更慢的重编码")
     args = parser.parse_args()
     try:
-        result = run_workflow(args.target_url, args.creator, args.output, args.history_url, args.history_transcript_srt, args.target_transcript_srt, args.creator_profile, args.clip_feedback, args.learned_preferences, args.learning_store, args.note, args.language, args.max_clips, args.analysis_window_seconds, args.candidates_per_window, args.format, args.export, args.reencode)
+        result = run_workflow(args.target_url, args.creator, args.output, args.history_url, args.history_transcript_srt, args.target_transcript_srt, args.creator_profile, args.clip_feedback, args.learned_preferences, args.learning_store, args.note, args.language, args.max_clips, args.analysis_window_seconds, args.candidates_per_window, args.format, args.export, args.reencode, args.exclude_feedback)
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False, indent=2))

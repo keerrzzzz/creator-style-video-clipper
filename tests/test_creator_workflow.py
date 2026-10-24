@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SCRIPTS))
-from creator_workflow import _apply_learned_boundaries, _apply_learned_preferences, _apply_semantic_similarity, _empty_learned_preferences, _update_learned_preferences, run_workflow
+from creator_workflow import _apply_learned_boundaries, _apply_learned_preferences, _apply_semantic_similarity, _empty_learned_preferences, _exclude_feedback_overlaps, _update_learned_preferences, run_workflow
 from transcript_rough_cut import Segment, compile_signals, find_event_reaction_candidates, make_candidates, score_text, topic_bounds
 from local.downloader import _resolve_local_path
 
@@ -167,6 +167,14 @@ class CreatorWorkflowTests(unittest.TestCase):
             with patch("local.downloader.download_video", return_value=str(root / "target.mp4")):
                 result = run_workflow("https://example.com/video", "测试博主", root / "result", history_srt=[history], target_srt=target, clip_feedback=feedback_path)
             self.assertIn("人工反馈偏好（反转）", result["clips"][0]["reason"])
+
+    def test_exclude_feedback_overlaps_returns_only_unseen_ranges(self):
+        candidates = [
+            {"start_seconds": 10, "end_seconds": 30, "score": 7},
+            {"start_seconds": 31, "end_seconds": 50, "score": 7},
+        ]
+        feedbacks = [{"feedback": [{"original_start": "00:00:12", "original_end": "00:00:20"}]}]
+        self.assertEqual(_exclude_feedback_overlaps(candidates, feedbacks), [candidates[1]])
 
     def test_keep_and_reject_feedback_builds_reusable_learned_preferences(self):
         learned = _empty_learned_preferences("测试创作者")
