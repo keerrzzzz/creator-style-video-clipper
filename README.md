@@ -68,6 +68,17 @@ brew install ffmpeg
 
 `faster-whisper` may download a local Whisper model the first time it transcribes a video. After that, cached model files can be reused. This is a local model download, not a paid model API call.
 
+### Optional Telan song review
+
+The football creator profile also has an optional, local YAMNet-assisted song detector. Install it only when reviewing complete singing performances:
+
+```bash
+pip install -r requirements-song-detection.txt
+python src/telan_song_workflow.py --input /path/to/recording.mkv --output output/song-review
+```
+
+It produces candidates marked `verification: pending`. Check the audio and transcript, then set approved entries to `audio+transcript` before exporting them with `--approved-song-plan --export`.
+
 ## Quick start
 
 Give the workflow two or more confirmed high-performing videos from the same creator, plus the target long video or livestream replay:

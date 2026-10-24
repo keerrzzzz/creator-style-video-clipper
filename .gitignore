@@ -13,4 +13,5 @@ profiles/*.json
 !profiles/example-creator-profile.json
 private/
 creator-learning/
+archive/
 .DS_Store
